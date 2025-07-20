@@ -273,22 +273,32 @@ def gpio_control():
 
 @app.route('/api/gpio/status', methods=['GET'])
 def gpio_status():
-    """Get GPIO system status"""
+    """Get GPIO system status (lightweight check)"""
     try:
-        status = get_gpio_status_command()
         if GPIO_AVAILABLE:
-            status['gpio_available'] = True
-            status['gpio_mode'] = 'MCP'
+            # Return basic status without starting GPIO server
+            status = {
+                'gpio_available': True,
+                'gpio_mode': 'MCP',
+                'message': 'MCP GPIO client ready',
+                'server_status': 'ready'
+            }
         else:
             status = {
                 'gpio_available': False,
                 'gpio_mode': 'NONE',
-                'message': 'MCP GPIO client not available'
+                'message': 'MCP GPIO client not available',
+                'server_status': 'unavailable'
             }
         
         return jsonify(status)
     except Exception as e:
-        return jsonify({'error': f'GPIO status error: {str(e)}'}), 500
+        return jsonify({
+            'gpio_available': False,
+            'gpio_mode': 'NONE',
+            'error': f'GPIO status error: {str(e)}',
+            'server_status': 'error'
+        }), 500
 
 @app.route('/health', methods=['GET'])
 def health():
