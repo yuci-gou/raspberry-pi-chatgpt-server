@@ -3,7 +3,20 @@ Freenove Projects Board GPIO Control Module
 Provides functions to control Raspberry Pi 400 GPIO pins
 """
 
-import RPi.GPIO as GPIO
+try:
+    import RPi.GPIO as GPIO
+    print("✅ RPi.GPIO imported successfully in freenove_projects_board.py")
+except ImportError as e:
+    print(f"❌ Failed to import RPi.GPIO in freenove_projects_board.py: {e}")
+    print("   This usually means:")
+    print("   - RPi.GPIO is not installed in the current Python environment")
+    print("   - You're not running on a Raspberry Pi")
+    print("   - Permission issues with GPIO access")
+    raise
+except Exception as e:
+    print(f"❌ Unexpected error importing RPi.GPIO: {e}")
+    raise
+
 import time
 import json
 import logging

@@ -8,9 +8,18 @@ from dotenv import load_dotenv
 try:
     from freenove_projects_board import set_gpio, read_gpio, cleanup_gpio
     GPIO_AVAILABLE = True
-except ImportError:
+    print("✅ GPIO functionality loaded successfully!")
+except ImportError as e:
     GPIO_AVAILABLE = False
-    print("Warning: GPIO functionality not available. Install RPi.GPIO for GPIO control.")
+    print(f"❌ Warning: GPIO functionality not available. Import error: {e}")
+    print("   Troubleshooting steps:")
+    print("   1. Make sure you're running on a Raspberry Pi")
+    print("   2. Install RPi.GPIO: pip3 install RPi.GPIO")
+    print("   3. Try running with sudo: sudo python3 app.py")
+    print("   4. Check if RPi.GPIO is in your virtual environment")
+except Exception as e:
+    GPIO_AVAILABLE = False
+    print(f"❌ Unexpected error loading GPIO: {e}")
 
 # Load environment variables
 load_dotenv()
