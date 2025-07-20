@@ -5,21 +5,37 @@ import os
 import json
 import re
 from dotenv import load_dotenv
+# Try MCP GPIO client first, fallback to direct GPIO
 try:
-    from freenove_projects_board import set_gpio, read_gpio, cleanup_gpio
+    from mcp_client import mcp_gpio_client
     GPIO_AVAILABLE = True
-    print("✅ GPIO functionality loaded successfully!")
+    GPIO_MODE = "MCP"
+    print("✅ MCP GPIO client loaded successfully!")
 except ImportError as e:
-    GPIO_AVAILABLE = False
-    print(f"❌ Warning: GPIO functionality not available. Import error: {e}")
-    print("   Troubleshooting steps:")
-    print("   1. Make sure you're running on a Raspberry Pi")
-    print("   2. Install RPi.GPIO: pip3 install RPi.GPIO")
-    print("   3. Try running with sudo: sudo python3 app.py")
-    print("   4. Check if RPi.GPIO is in your virtual environment")
+    print(f"⚠️ MCP client not available: {e}")
+    # Fallback to direct GPIO
+    try:
+        from freenove_projects_board import set_gpio, read_gpio, cleanup_gpio
+        GPIO_AVAILABLE = True
+        GPIO_MODE = "DIRECT"
+        print("✅ Direct GPIO functionality loaded successfully!")
+    except ImportError as e:
+        GPIO_AVAILABLE = False
+        GPIO_MODE = "NONE"
+        print(f"❌ Warning: GPIO functionality not available. Import error: {e}")
+        print("   Troubleshooting steps:")
+        print("   1. Make sure you're running on a Raspberry Pi")
+        print("   2. Install RPi.GPIO: pip3 install RPi.GPIO")
+        print("   3. Try running with sudo: sudo python3 app.py")
+        print("   4. Check if RPi.GPIO is in your virtual environment")
+    except Exception as e:
+        GPIO_AVAILABLE = False
+        GPIO_MODE = "NONE"
+        print(f"❌ Unexpected error loading GPIO: {e}")
 except Exception as e:
     GPIO_AVAILABLE = False
-    print(f"❌ Unexpected error loading GPIO: {e}")
+    GPIO_MODE = "NONE"
+    print(f"❌ Unexpected error loading MCP client: {e}")
 
 # Load environment variables
 load_dotenv()
@@ -147,6 +163,65 @@ Examples:
 
 Always explain what you're doing and include the JSON command block."""
 
+def execute_gpio_command(pin: int, state: str) -> dict:
+    """Execute GPIO command using available mode (MCP or Direct)
+    
+    Args:
+        pin (int): GPIO pin number
+        state (str): Pin state
+        
+    Returns:
+        dict: GPIO execution result
+    """
+    try:
+        if GPIO_MODE == "MCP":
+            return mcp_gpio_client.set_gpio_pin(pin, state)
+        elif GPIO_MODE == "DIRECT":
+            return set_gpio(pin, state)
+        else:
+            return {"success": False, "message": "GPIO functionality not available"}
+    except Exception as e:
+        return {"success": False, "message": f"GPIO execution error: {e}"}
+
+def read_gpio_command(pin: int) -> dict:
+    """Read GPIO pin using available mode (MCP or Direct)
+    
+    Args:
+        pin (int): GPIO pin number
+        
+    Returns:
+        dict: GPIO read result
+    """
+    try:
+        if GPIO_MODE == "MCP":
+            return mcp_gpio_client.read_gpio_pin(pin)
+        elif GPIO_MODE == "DIRECT":
+            return read_gpio(pin)
+        else:
+            return {"success": False, "message": "GPIO functionality not available"}
+    except Exception as e:
+        return {"success": False, "message": f"GPIO read error: {e}"}
+
+def get_gpio_status_command() -> dict:
+    """Get GPIO status using available mode (MCP or Direct)
+    
+    Returns:
+        dict: GPIO status result
+    """
+    try:
+        if GPIO_MODE == "MCP":
+            return mcp_gpio_client.get_gpio_status()
+        elif GPIO_MODE == "DIRECT":
+            from freenove_projects_board import gpio_controller
+            status = gpio_controller.get_pin_status()
+            status['gpio_available'] = True
+            status['mode'] = 'DIRECT'
+            return status
+        else:
+            return {"gpio_available": False, "message": "GPIO functionality not available"}
+    except Exception as e:
+        return {"success": False, "message": f"GPIO status error: {e}"}
+
 def process_gpio_response(response: str) -> dict:
     """Process ChatGPT response for GPIO commands
     
@@ -175,8 +250,8 @@ def process_gpio_response(response: str) -> dict:
         state = command_json.get('state')
         
         if action == 'set_output' and pin is not None and state is not None:
-            # Execute the GPIO command
-            result = set_gpio(int(pin), str(state))
+            # Execute the GPIO command using the appropriate mode
+            result = execute_gpio_command(int(pin), str(state))
             return result
         else:
             return {
@@ -209,14 +284,14 @@ def gpio_control():
             if pin is None or state is None:
                 return jsonify({'error': 'Pin and state required for set_output'}), 400
             
-            result = set_gpio(int(pin), str(state))
+            result = execute_gpio_command(int(pin), str(state))
             return jsonify(result)
         
         elif action == 'read_input':
             if pin is None:
                 return jsonify({'error': 'Pin required for read_input'}), 400
             
-            result = read_gpio(int(pin))
+            result = read_gpio_command(int(pin))
             return jsonify(result)
         
         else:
@@ -229,13 +304,14 @@ def gpio_control():
 def gpio_status():
     """Get GPIO system status"""
     try:
+        status = get_gpio_status_command()
         if GPIO_AVAILABLE:
-            from freenove_projects_board import gpio_controller
-            status = gpio_controller.get_pin_status()
             status['gpio_available'] = True
+            status['gpio_mode'] = GPIO_MODE
         else:
             status = {
                 'gpio_available': False,
+                'gpio_mode': GPIO_MODE,
                 'message': 'GPIO functionality not available'
             }
         
@@ -249,7 +325,8 @@ def health():
     return jsonify({
         'status': 'healthy', 
         'message': 'ChatGPT server is running',
-        'gpio_available': GPIO_AVAILABLE
+        'gpio_available': GPIO_AVAILABLE,
+        'gpio_mode': GPIO_MODE
     })
 
 if __name__ == '__main__':
