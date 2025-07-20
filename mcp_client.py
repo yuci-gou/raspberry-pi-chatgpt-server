@@ -60,14 +60,14 @@ class SimpleGPIOClient:
         # Send request to server
         request_json = json.dumps(request) + "\n"
         try:
-            self.server_process.stdin.write(request_json.encode())
+            self.server_process.stdin.write(request_json)  # Write string directly, not bytes
             self.server_process.stdin.flush()
         except BrokenPipeError:
             raise RuntimeError("GPIO server connection broken")
         
         # Read response
         try:
-            response_line = self.server_process.stdout.readline().decode().strip()
+            response_line = self.server_process.stdout.readline().strip()  # Already string, no need to decode
             if not response_line:
                 raise RuntimeError("Empty response from GPIO server")
             
