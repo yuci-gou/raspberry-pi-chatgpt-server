@@ -32,13 +32,26 @@ class SimpleHTTPGPIOClient:
         
         try:
             logger.info("🚀 Starting GPIO service...")
+            
+            # Get absolute path to service script
+            import os
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            service_script = os.path.join(current_dir, "simple_gpio_service.py")
+            
+            if not os.path.exists(service_script):
+                raise RuntimeError(f"GPIO service script not found: {service_script}")
+            
+            logger.info(f"Starting service from: {service_script}")
+            
             self.service_process = subprocess.Popen(
-                ["python3", "simple_gpio_service.py"],
+                ["python3", service_script],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
                 bufsize=1,  # Line buffered
-                universal_newlines=True
+                universal_newlines=True,
+                cwd=current_dir,  # Set working directory
+                env=os.environ.copy()  # Copy environment
             )
             
             # Read the service port from stdout
@@ -50,7 +63,11 @@ class SimpleHTTPGPIOClient:
                     # Process has terminated
                     stderr_output = self.service_process.stderr.read()
                     stdout_output = self.service_process.stdout.read()
-                    raise RuntimeError(f"GPIO service failed to start. stderr: {stderr_output}, stdout: {stdout_output}")
+                    return_code = self.service_process.returncode
+                    logger.error(f"Service process terminated with code {return_code}")
+                    logger.error(f"Service stdout: {stdout_output}")
+                    logger.error(f"Service stderr: {stderr_output}")
+                    raise RuntimeError(f"GPIO service failed to start. Return code: {return_code}, stderr: {stderr_output}, stdout: {stdout_output}")
                 
                 # Try to read a line from stdout
                 try:
