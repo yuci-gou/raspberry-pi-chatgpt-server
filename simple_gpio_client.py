@@ -100,6 +100,16 @@ class SimpleHTTPGPIOClient:
                 # Retry health check multiple times
                 health_check_passed = False
                 for attempt in range(5):
+                    # Check if service process is still running
+                    if self.service_process.poll() is not None:
+                        stderr_output = self.service_process.stderr.read()
+                        stdout_output = self.service_process.stdout.read()
+                        return_code = self.service_process.returncode
+                        logger.error(f"Service process died during health check! Return code: {return_code}")
+                        logger.error(f"Service stdout: {stdout_output}")
+                        logger.error(f"Service stderr: {stderr_output}")
+                        raise RuntimeError(f"GPIO service process terminated during startup. Return code: {return_code}")
+                    
                     try:
                         response = requests.get(f"{self.base_url}/health", timeout=3)
                         if response.status_code == 200:
