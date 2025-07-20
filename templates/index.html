@@ -131,6 +131,49 @@
             white-space: pre-wrap;
         }
 
+        .gpio-result {
+            background: #f0f8ff;
+            border: 2px solid #4a90e2;
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 15px;
+        }
+
+        .gpio-result.success {
+            background: #f0fff4;
+            border-color: #28a745;
+        }
+
+        .gpio-result.error {
+            background: #fff5f5;
+            border-color: #dc3545;
+        }
+
+        .gpio-status {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.9rem;
+            margin-bottom: 10px;
+        }
+
+        .status-indicator {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .status-indicator.available {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-indicator.unavailable {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
         .error {
             background: #fee;
             border: 1px solid #fcc;
@@ -195,6 +238,14 @@
                 <div id="welcome" style="text-align: center; color: #666; padding: 40px 0;">
                     <h3>Welcome to your ChatGPT Server!</h3>
                     <p>Type a question above and click "Ask" to get started.</p>
+                    <div class="gpio-status">
+                        <span>GPIO Status:</span>
+                        <span id="gpioStatus" class="status-indicator unavailable">Checking...</span>
+                    </div>
+                    <div style="margin-top: 20px; font-size: 0.9rem; color: #888;">
+                        <p><strong>Try GPIO commands:</strong></p>
+                        <p>"Turn on LED on pin 18" | "Set pin 22 high" | "Turn off pin 18"</p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -229,7 +280,7 @@
                 const data = await response.json();
 
                 if (response.ok && data.success) {
-                    showResponse(data.question, data.answer);
+                    showResponse(data.question, data.answer, data);
                 } else {
                     showError(data.error || 'An error occurred');
                 }
@@ -246,13 +297,17 @@
             document.getElementById('askButton').disabled = true;
         }
 
-        function showResponse(question, answer) {
+        function showResponse(question, answer, data = {}) {
             document.getElementById('loading').style.display = 'none';
             document.getElementById('error').style.display = 'none';
             document.getElementById('welcome').style.display = 'none';
             
             document.getElementById('questionDisplay').textContent = '❓ ' + question;
             document.getElementById('answerDisplay').textContent = answer;
+            
+            // Show GPIO result if available
+            showGpioResult(data);
+            
             document.getElementById('response').style.display = 'block';
             document.getElementById('askButton').disabled = false;
         }
@@ -273,9 +328,66 @@
             }
         }
 
-        // Focus on input when page loads
+        function showGpioResult(data) {
+            // Remove any existing GPIO result display
+            const existingGpioResult = document.getElementById('gpioResultDisplay');
+            if (existingGpioResult) {
+                existingGpioResult.remove();
+            }
+            
+            // Show GPIO result if available
+            if (data.gpio_result) {
+                const gpioResultDiv = document.createElement('div');
+                gpioResultDiv.id = 'gpioResultDisplay';
+                gpioResultDiv.className = `gpio-result ${data.gpio_result.success ? 'success' : 'error'}`;
+                
+                const icon = data.gpio_result.success ? '✅' : '❌';
+                const title = data.gpio_result.success ? 'GPIO Command Executed' : 'GPIO Command Failed';
+                
+                gpioResultDiv.innerHTML = `
+                    <strong>${icon} ${title}</strong><br>
+                    <strong>Message:</strong> ${data.gpio_result.message}<br>
+                    ${data.gpio_result.pin ? `<strong>Pin:</strong> ${data.gpio_result.pin}<br>` : ''}
+                    ${data.gpio_result.state ? `<strong>State:</strong> ${data.gpio_result.state}<br>` : ''}
+                `;
+                
+                document.getElementById('response').appendChild(gpioResultDiv);
+            } else if (data.gpio_detected && !data.gpio_available) {
+                const gpioResultDiv = document.createElement('div');
+                gpioResultDiv.id = 'gpioResultDisplay';
+                gpioResultDiv.className = 'gpio-result error';
+                gpioResultDiv.innerHTML = `
+                    <strong>⚠️ GPIO Not Available</strong><br>
+                    GPIO functionality is not available on this system. Make sure you're running on a Raspberry Pi with RPi.GPIO installed.
+                `;
+                document.getElementById('response').appendChild(gpioResultDiv);
+            }
+        }
+        
+        async function checkGpioStatus() {
+            try {
+                const response = await fetch('/api/gpio/status');
+                const data = await response.json();
+                
+                const statusElement = document.getElementById('gpioStatus');
+                if (data.gpio_available) {
+                    statusElement.textContent = 'Available';
+                    statusElement.className = 'status-indicator available';
+                } else {
+                    statusElement.textContent = 'Not Available';
+                    statusElement.className = 'status-indicator unavailable';
+                }
+            } catch (error) {
+                const statusElement = document.getElementById('gpioStatus');
+                statusElement.textContent = 'Unknown';
+                statusElement.className = 'status-indicator unavailable';
+            }
+        }
+
+        // Focus on input when page loads and check GPIO status
         window.onload = function() {
             document.getElementById('questionInput').focus();
+            checkGpioStatus();
         };
     </script>
 </body>
