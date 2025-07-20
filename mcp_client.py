@@ -69,9 +69,21 @@ class SimpleGPIOClient:
         except Exception as e:
             raise RuntimeError(f"Failed to send request to GPIO server: {e}")
         
-        # Read response
+        # Read response with timeout using select
         try:
-            response_line = self.server_process.stdout.readline().strip()  # Already string, no need to decode
+            import select
+            
+            # Use select for timeout on reading response
+            if hasattr(select, 'select'):
+                ready, _, _ = select.select([self.server_process.stdout], [], [], 10.0)  # 10 second timeout
+                if not ready:
+                    raise TimeoutError("GPIO server response timeout (10 seconds)")
+                
+                response_line = self.server_process.stdout.readline().strip()
+            else:
+                # Fallback for systems without select
+                response_line = self.server_process.stdout.readline().strip()
+            
             logger.info(f"Received response: {response_line}")
             
             if not response_line:

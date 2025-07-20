@@ -307,7 +307,7 @@ def health():
         'status': 'healthy', 
         'message': 'ChatGPT server is running',
         'gpio_available': GPIO_AVAILABLE,
-        'gpio_mode': GPIO_MODE
+        'gpio_mode': 'MCP' if GPIO_AVAILABLE else 'NONE'
     })
 
 if __name__ == '__main__':
