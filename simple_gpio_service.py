@@ -96,10 +96,43 @@ def health_check():
         "service": "GPIO Service"
     })
 
-def run_service():
+def find_available_port(start_port=5001, max_attempts=10):
+    """Find an available port starting from start_port"""
+    import socket
+    for port in range(start_port, start_port + max_attempts):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(('127.0.0.1', port))
+                return port
+        except OSError:
+            continue
+    raise RuntimeError(f"No available ports found in range {start_port}-{start_port + max_attempts}")
+
+def run_service(port=None):
     """Run the GPIO service"""
-    logger.info("🚀 Starting Simple GPIO Service on port 5001...")
-    app.run(host='127.0.0.1', port=5001, debug=False, use_reloader=False)
+    try:
+        if port is None:
+            port = find_available_port()
+        
+        logger.info(f"🚀 Starting Simple GPIO Service on port {port}...")
+        
+        # Print port for client to read
+        print(f"SERVICE_PORT:{port}", flush=True)
+        
+        # Use a more robust Flask startup
+        app.run(
+            host='127.0.0.1', 
+            port=port, 
+            debug=False, 
+            use_reloader=False,
+            threaded=True,
+            processes=1
+        )
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to start GPIO service: {e}")
+        print(f"SERVICE_ERROR:{e}", flush=True)
+        raise
 
 if __name__ == "__main__":
     run_service()

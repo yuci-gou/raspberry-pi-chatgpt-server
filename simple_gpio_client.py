@@ -18,9 +18,9 @@ logger = logging.getLogger("simple-gpio-client")
 class SimpleHTTPGPIOClient:
     """Simple HTTP-based GPIO client"""
     
-    def __init__(self, service_port=5001):
-        self.service_port = service_port
-        self.base_url = f"http://127.0.0.1:{service_port}"
+    def __init__(self, service_port=None):
+        self.service_port = service_port  # Will be determined dynamically
+        self.base_url = None  # Will be set after service starts
         self.service_process = None
         logger.info("🔌 Simple HTTP GPIO Client initialized")
     
@@ -31,31 +31,60 @@ class SimpleHTTPGPIOClient:
             return
         
         try:
-            logger.info(f"🚀 Starting GPIO service on port {self.service_port}...")
+            logger.info("🚀 Starting GPIO service...")
             self.service_process = subprocess.Popen(
                 ["python3", "simple_gpio_service.py"],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True
+                text=True,
+                bufsize=1,  # Line buffered
+                universal_newlines=True
             )
             
-            # Wait for service to start
-            time.sleep(2.0)
+            # Read the service port from stdout
+            port_found = False
+            error_found = False
             
-            # Check if service is running
-            if self.service_process.poll() is not None:
-                stderr_output = self.service_process.stderr.read()
-                raise RuntimeError(f"GPIO service failed to start: {stderr_output}")
+            for _ in range(50):  # Try for 5 seconds
+                if self.service_process.poll() is not None:
+                    # Process has terminated
+                    stderr_output = self.service_process.stderr.read()
+                    stdout_output = self.service_process.stdout.read()
+                    raise RuntimeError(f"GPIO service failed to start. stderr: {stderr_output}, stdout: {stdout_output}")
+                
+                # Try to read a line from stdout
+                try:
+                    line = self.service_process.stdout.readline()
+                    if line:
+                        line = line.strip()
+                        if line.startswith("SERVICE_PORT:"):
+                            self.service_port = int(line.split(":")[1])
+                            self.base_url = f"http://127.0.0.1:{self.service_port}"
+                            port_found = True
+                            logger.info(f"✅ GPIO service started on port {self.service_port}")
+                            break
+                        elif line.startswith("SERVICE_ERROR:"):
+                            error_msg = line.split(":", 1)[1]
+                            error_found = True
+                            raise RuntimeError(f"GPIO service error: {error_msg}")
+                except:
+                    pass
+                
+                time.sleep(0.1)
+            
+            if not port_found and not error_found:
+                raise RuntimeError("GPIO service did not report its port within timeout")
             
             # Test service health
-            try:
-                response = requests.get(f"{self.base_url}/health", timeout=5)
-                if response.status_code == 200:
-                    logger.info("✅ GPIO service started successfully")
-                else:
-                    raise RuntimeError(f"Service health check failed: {response.status_code}")
-            except requests.exceptions.RequestException as e:
-                raise RuntimeError(f"Service not responding: {e}")
+            if port_found:
+                try:
+                    response = requests.get(f"{self.base_url}/health", timeout=5)
+                    if response.status_code == 200:
+                        logger.info("✅ GPIO service health check passed")
+                    else:
+                        raise RuntimeError(f"Service health check failed: {response.status_code}")
+                except requests.exceptions.RequestException as e:
+                    raise RuntimeError(f"Service not responding: {e}")
                 
         except Exception as e:
             logger.error(f"❌ Failed to start GPIO service: {e}")
