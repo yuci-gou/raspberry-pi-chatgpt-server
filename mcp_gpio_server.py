@@ -176,31 +176,49 @@ class SimpleGPIOServer:
         """Run the server (blocking)"""
         logger.info("🚀 Starting Simple GPIO Server...")
         
-        # Send server ready signal
+        # Send server ready signal to stderr (so client can see it)
+        print("GPIO_SERVER_READY", file=sys.stderr, flush=True)
+        
+        # Ensure stdout is ready for JSON-RPC communication
         sys.stdout.flush()
         
         try:
-            for line in sys.stdin:
-                line = line.strip()
-                if not line:
-                    continue
-                
-                logger.info(f"Received request: {line}")
-                
+            # Use a more robust input reading approach
+            while True:
                 try:
-                    request = json.loads(line)
-                    response = self.handle_request(request)
-                    response_json = json.dumps(response)
-                    logger.info(f"Sending response: {response_json}")
-                    print(response_json, flush=True)
-                except json.JSONDecodeError as e:
-                    logger.error(f"Invalid JSON: {e}")
-                    error_response = {
-                        "jsonrpc": "2.0",
-                        "id": None,
-                        "error": {"code": -32700, "message": "Parse error"}
-                    }
-                    print(json.dumps(error_response), flush=True)
+                    # Read line from stdin
+                    line = sys.stdin.readline()
+                    if not line:  # EOF
+                        logger.info("EOF received, shutting down server")
+                        break
+                    
+                    line = line.strip()
+                    if not line:
+                        continue
+                    
+                    logger.info(f"Received request: {line}")
+                    
+                    try:
+                        request = json.loads(line)
+                        response = self.handle_request(request)
+                        response_json = json.dumps(response)
+                        logger.info(f"Sending response: {response_json}")
+                        print(response_json, flush=True)
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Invalid JSON: {e}")
+                        error_response = {
+                            "jsonrpc": "2.0",
+                            "id": None,
+                            "error": {"code": -32700, "message": "Parse error"}
+                        }
+                        print(json.dumps(error_response), flush=True)
+                        
+                except EOFError:
+                    logger.info("EOFError received, shutting down server")
+                    break
+                except KeyboardInterrupt:
+                    logger.info("⚠️ Server interrupted by user")
+                    break
                     
         except KeyboardInterrupt:
             logger.info("⚠️ Server interrupted by user")

@@ -134,31 +134,31 @@ class SimpleGPIOClient:
                 bufsize=0
             )
             
-            # Wait for server to start with immediate validation
-            time.sleep(0.5)
+            # Wait for server ready signal
+            server_ready = False
+            for attempt in range(50):  # 5 seconds total
+                if self.server_process.poll() is not None:
+                    stderr_output = self.server_process.stderr.read()
+                    stdout_output = self.server_process.stdout.read()
+                    raise RuntimeError(f"GPIO server failed to start. stderr: {stderr_output}, stdout: {stdout_output}")
+                
+                # Check for server ready signal in stderr
+                import select
+                if hasattr(select, 'select'):
+                    ready, _, _ = select.select([self.server_process.stderr], [], [], 0.1)
+                    if ready:
+                        stderr_data = self.server_process.stderr.readline()
+                        if stderr_data:
+                            logger.info(f"Server stderr: {stderr_data.strip()}")
+                            if "GPIO_SERVER_READY" in stderr_data:
+                                server_ready = True
+                                logger.info("✅ GPIO server ready signal received")
+                                break
+                
+                time.sleep(0.1)
             
-            # Check if server is still running
-            if self.server_process.poll() is not None:
-                stderr_output = self.server_process.stderr.read()
-                stdout_output = self.server_process.stdout.read()
-                raise RuntimeError(f"GPIO server failed to start. stderr: {stderr_output}, stdout: {stdout_output}")
-            
-            # Test if server is responsive by checking if it's ready to read
-            import select
-            if hasattr(select, 'select'):
-                # Check if server has sent any output (like "READY" signal)
-                ready, _, _ = select.select([self.server_process.stdout, self.server_process.stderr], [], [], 2.0)
-                if ready:
-                    # Read any startup messages
-                    for stream in ready:
-                        if stream == self.server_process.stderr:
-                            stderr_data = stream.read(1024)  # Read some data
-                            if stderr_data:
-                                logger.info(f"Server stderr: {stderr_data}")
-                        elif stream == self.server_process.stdout:
-                            stdout_data = stream.read(1024)  # Read some data  
-                            if stdout_data:
-                                logger.info(f"Server stdout: {stdout_data}")
+            if not server_ready:
+                raise RuntimeError("GPIO server did not send ready signal within timeout")
             
             # Check for any startup errors in stderr (non-blocking)
             import select
