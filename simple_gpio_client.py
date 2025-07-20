@@ -75,16 +75,29 @@ class SimpleHTTPGPIOClient:
             if not port_found and not error_found:
                 raise RuntimeError("GPIO service did not report its port within timeout")
             
-            # Test service health
+            # Test service health with retry logic
             if port_found:
-                try:
-                    response = requests.get(f"{self.base_url}/health", timeout=5)
-                    if response.status_code == 200:
-                        logger.info("✅ GPIO service health check passed")
-                    else:
-                        raise RuntimeError(f"Service health check failed: {response.status_code}")
-                except requests.exceptions.RequestException as e:
-                    raise RuntimeError(f"Service not responding: {e}")
+                # Give Flask a moment to start listening
+                time.sleep(1.0)
+                
+                # Retry health check multiple times
+                health_check_passed = False
+                for attempt in range(5):
+                    try:
+                        response = requests.get(f"{self.base_url}/health", timeout=3)
+                        if response.status_code == 200:
+                            logger.info("✅ GPIO service health check passed")
+                            health_check_passed = True
+                            break
+                        else:
+                            logger.warning(f"Health check attempt {attempt + 1} failed: {response.status_code}")
+                    except requests.exceptions.RequestException as e:
+                        logger.warning(f"Health check attempt {attempt + 1} failed: {e}")
+                        if attempt < 4:  # Don't sleep on last attempt
+                            time.sleep(0.5)
+                
+                if not health_check_passed:
+                    raise RuntimeError("Service health check failed after 5 attempts")
                 
         except Exception as e:
             logger.error(f"❌ Failed to start GPIO service: {e}")
