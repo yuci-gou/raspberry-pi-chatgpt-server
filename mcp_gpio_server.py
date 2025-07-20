@@ -177,10 +177,14 @@ class SimpleGPIOServer:
         logger.info("🚀 Starting Simple GPIO Server...")
         
         # Send server ready signal to stderr (so client can see it)
+        logger.info("📡 Sending GPIO_SERVER_READY signal...")
         print("GPIO_SERVER_READY", file=sys.stderr, flush=True)
+        logger.info("✅ GPIO_SERVER_READY signal sent")
         
         # Ensure stdout is ready for JSON-RPC communication
+        logger.info("🔄 Flushing stdout for JSON-RPC...")
         sys.stdout.flush()
+        logger.info("📝 Ready to receive JSON-RPC requests")
         
         try:
             # Use a more robust input reading approach
@@ -232,8 +236,11 @@ class SimpleGPIOServer:
 
 def main():
     """Main function to run the GPIO server"""
+    logger.info("📋 Main function started")
     server = SimpleGPIOServer()
+    logger.info("🔧 Server instance created, calling run()...")
     server.run()
+    logger.info("🏁 Server run() completed")
 
 if __name__ == "__main__":
     main()
