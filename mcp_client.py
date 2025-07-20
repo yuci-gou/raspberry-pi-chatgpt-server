@@ -1,41 +1,42 @@
 #!/usr/bin/env python3
 """
-MCP Client for GPIO Control
-Handles communication with the MCP GPIO Server
+Simplified GPIO Client for Raspberry Pi GPIO Control
+Communicates with JSON-RPC GPIO server to control GPIO pins
 """
 
-import asyncio
 import json
 import logging
 import subprocess
-from typing import Dict, Any, List, Optional
-from contextlib import asynccontextmanager
+import sys
+import time
+from typing import Any, Dict, List, Optional, Union
+from pathlib import Path
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("mcp-client")
+logger = logging.getLogger("gpio-client")
 
-class MCPGPIOClient:
-    """MCP Client for communicating with GPIO MCP Server"""
+class SimpleGPIOClient:
+    """Simple JSON-RPC GPIO Client"""
     
-    def __init__(self, server_command: List[str] = None):
-        """Initialize MCP client
+    def __init__(self, server_script: str = "mcp_gpio_server.py"):
+        """Initialize GPIO client
         
         Args:
-            server_command: Command to start the MCP server
+            server_script: Path to the GPIO server script
         """
-        self.server_command = server_command or ["python3", "mcp_gpio_server.py"]
+        self.server_script = server_script
         self.server_process = None
         self.request_id = 0
-        logger.info("🔌 MCP GPIO Client initialized")
+        logger.info("🔌 Simple GPIO Client initialized")
     
     def _get_next_id(self) -> int:
         """Get next request ID"""
         self.request_id += 1
         return self.request_id
     
-    async def _send_request(self, method: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
-        """Send JSON-RPC request to MCP server
+    def _send_request(self, method: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Send JSON-RPC request to GPIO server
         
         Args:
             method: JSON-RPC method name
@@ -45,240 +46,257 @@ class MCPGPIOClient:
             Response from server
         """
         if not self.server_process:
-            raise RuntimeError("MCP server not started")
+            raise RuntimeError("GPIO server not started")
         
         request = {
             "jsonrpc": "2.0",
             "id": self._get_next_id(),
-            "method": method,
-            "params": params or {}
+            "method": method
         }
         
+        if params:
+            request["params"] = params
+        
+        # Send request to server
+        request_json = json.dumps(request) + "\n"
         try:
-            # Send request
-            request_json = json.dumps(request) + "\n"
             self.server_process.stdin.write(request_json.encode())
-            await self.server_process.stdin.drain()
-            
-            # Read response
-            response_line = await self.server_process.stdout.readline()
+            self.server_process.stdin.flush()
+        except BrokenPipeError:
+            raise RuntimeError("GPIO server connection broken")
+        
+        # Read response
+        try:
+            response_line = self.server_process.stdout.readline().decode().strip()
             if not response_line:
-                raise RuntimeError("No response from MCP server")
+                raise RuntimeError("Empty response from GPIO server")
             
-            response = json.loads(response_line.decode().strip())
+            response = json.loads(response_line)
             
             if "error" in response:
-                raise RuntimeError(f"MCP server error: {response['error']}")
+                raise RuntimeError(f"GPIO server error: {response['error']}")
             
             return response.get("result", {})
             
+        except json.JSONDecodeError as e:
+            raise RuntimeError(f"Invalid JSON response from GPIO server: {e}")
         except Exception as e:
-            logger.error(f"Error communicating with MCP server: {e}")
-            raise
+            raise RuntimeError(f"Communication error with GPIO server: {e}")
     
-    @asynccontextmanager
-    async def connect(self):
-        """Context manager for MCP server connection"""
+    def start_server(self):
+        """Start the GPIO server"""
+        if self.server_process:
+            logger.warning("GPIO server already running")
+            return
+        
         try:
-            logger.info("🚀 Starting MCP GPIO server...")
-            
-            # Start the MCP server process
-            self.server_process = await asyncio.create_subprocess_exec(
-                *self.server_command,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+            logger.info(f"🚀 Starting GPIO server: python3 {self.server_script}")
+            self.server_process = subprocess.Popen(
+                ["python3", self.server_script],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=0
             )
             
-            # Initialize the connection
-            await self._send_request("initialize", {
+            # Wait a moment for server to start
+            time.sleep(0.5)
+            
+            # Check if server is still running
+            if self.server_process.poll() is not None:
+                stderr_output = self.server_process.stderr.read()
+                raise RuntimeError(f"GPIO server failed to start. Error: {stderr_output}")
+            
+            # Initialize the server
+            self._send_request("initialize", {
                 "protocolVersion": "2024-11-05",
-                "capabilities": {
-                    "tools": {},
-                    "resources": {}
-                },
-                "clientInfo": {
-                    "name": "flask-gpio-client",
-                    "version": "1.0.0"
-                }
+                "capabilities": {"tools": {}},
+                "clientInfo": {"name": "gpio-client", "version": "1.0.0"}
             })
             
-            logger.info("✅ Connected to MCP GPIO server")
-            yield self
+            logger.info("✅ GPIO server started and initialized successfully")
             
         except Exception as e:
-            logger.error(f"❌ Failed to connect to MCP server: {e}")
-            raise
-        finally:
+            logger.error(f"❌ Failed to start GPIO server: {e}")
             if self.server_process:
-                logger.info("🧹 Shutting down MCP GPIO server...")
                 self.server_process.terminate()
-                await self.server_process.wait()
-                logger.info("✅ MCP GPIO server shutdown complete")
+                self.server_process = None
+            raise
     
-    async def list_tools(self) -> List[Dict[str, Any]]:
-        """List available tools from MCP server"""
-        try:
-            result = await self._send_request("tools/list")
-            return result.get("tools", [])
-        except Exception as e:
-            logger.error(f"Error listing tools: {e}")
-            return []
-    
-    async def call_tool(self, name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        """Call a tool on the MCP server
+    def stop_server(self):
+        """Stop the GPIO server"""
+        if not self.server_process:
+            return
         
-        Args:
-            name: Tool name
-            arguments: Tool arguments
-            
-        Returns:
-            Tool result
-        """
+        logger.info("🛑 Stopping GPIO server...")
         try:
-            result = await self._send_request("tools/call", {
-                "name": name,
-                "arguments": arguments
-            })
+            self.server_process.terminate()
             
-            # Extract text content from MCP response
-            content = result.get("content", [])
-            if content and len(content) > 0:
-                text_content = content[0].get("text", "{}")
-                return json.loads(text_content)
+            # Wait for graceful shutdown
+            try:
+                self.server_process.wait(timeout=5.0)
+            except subprocess.TimeoutExpired:
+                logger.warning("GPIO server didn't shut down gracefully, killing...")
+                self.server_process.kill()
+                self.server_process.wait()
             
-            return {"error": "No content in response"}
+            logger.info("✅ GPIO server stopped")
             
         except Exception as e:
-            logger.error(f"Error calling tool {name}: {e}")
-            return {"error": str(e), "tool": name, "arguments": arguments}
+            logger.error(f"Error stopping GPIO server: {e}")
+        finally:
+            self.server_process = None
     
-    async def set_gpio_pin(self, pin: int, state: str) -> Dict[str, Any]:
-        """Set GPIO pin state via MCP
+    def __enter__(self):
+        """Context manager entry"""
+        self.start_server()
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit"""
+        self.stop_server()
+    
+    def set_gpio_pin(self, pin: int, state: str) -> Dict[str, Any]:
+        """Set GPIO pin state
         
         Args:
             pin: GPIO pin number
             state: Pin state ('high', 'low', 'on', 'off', '1', '0')
             
         Returns:
-            Result dictionary
+            Result from GPIO operation
         """
-        return await self.call_tool("set_gpio_pin", {"pin": pin, "state": state})
+        return self._send_request("tools/call", {
+            "name": "set_gpio_pin",
+            "arguments": {"pin": pin, "state": state}
+        })
     
-    async def read_gpio_pin(self, pin: int) -> Dict[str, Any]:
-        """Read GPIO pin state via MCP
+    def read_gpio_pin(self, pin: int) -> Dict[str, Any]:
+        """Read GPIO pin state
         
         Args:
             pin: GPIO pin number
             
         Returns:
-            Result dictionary
+            Current pin state
         """
-        return await self.call_tool("read_gpio_pin", {"pin": pin})
+        return self._send_request("tools/call", {
+            "name": "read_gpio_pin",
+            "arguments": {"pin": pin}
+        })
     
-    async def get_gpio_status(self) -> Dict[str, Any]:
-        """Get GPIO controller status via MCP
+    def get_gpio_status(self) -> Dict[str, Any]:
+        """Get GPIO controller status
         
         Returns:
-            Status dictionary
+            GPIO controller status
         """
-        return await self.call_tool("get_gpio_status", {})
+        return self._send_request("tools/call", {
+            "name": "get_gpio_status",
+            "arguments": {}
+        })
     
-    async def list_valid_pins(self) -> Dict[str, Any]:
-        """Get list of valid GPIO pins via MCP
+    def list_valid_pins(self) -> Dict[str, Any]:
+        """List valid GPIO pins
         
         Returns:
-            Pin information dictionary
+            List of valid GPIO pins
         """
-        return await self.call_tool("list_valid_gpio_pins", {})
+        return self._send_request("tools/call", {
+            "name": "list_valid_gpio_pins",
+            "arguments": {}
+        })
+    
+    def list_tools(self) -> Dict[str, Any]:
+        """List available tools
+        
+        Returns:
+            List of available tools
+        """
+        return self._send_request("tools/list")
 
 # Synchronous wrapper for Flask integration
-class SyncMCPGPIOClient:
-    """Synchronous wrapper for MCP GPIO Client"""
+class SyncGPIOClient:
+    """Synchronous wrapper for Simple GPIO Client"""
     
     def __init__(self):
-        self.client = MCPGPIOClient()
-        logger.info("🔄 Sync MCP GPIO Client initialized")
+        self.client = SimpleGPIOClient()
+        logger.info("🔄 Sync GPIO Client initialized")
     
-    def _run_async(self, coro):
-        """Run async coroutine in sync context"""
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        
-        return loop.run_until_complete(coro)
-    
-    async def _execute_with_client(self, operation):
-        """Execute operation with MCP client connection"""
-        async with self.client.connect():
-            return await operation(self.client)
+    def _execute_with_client(self, operation):
+        """Execute operation with GPIO client connection"""
+        with self.client:
+            return operation(self.client)
     
     def set_gpio_pin(self, pin: int, state: str) -> Dict[str, Any]:
         """Set GPIO pin state (synchronous)"""
-        async def operation(client):
-            return await client.set_gpio_pin(pin, state)
+        def operation(client):
+            return client.set_gpio_pin(pin, state)
         
-        return self._run_async(self._execute_with_client(operation))
+        return self._execute_with_client(operation)
     
     def read_gpio_pin(self, pin: int) -> Dict[str, Any]:
         """Read GPIO pin state (synchronous)"""
-        async def operation(client):
-            return await client.read_gpio_pin(pin)
+        def operation(client):
+            return client.read_gpio_pin(pin)
         
-        return self._run_async(self._execute_with_client(operation))
+        return self._execute_with_client(operation)
     
     def get_gpio_status(self) -> Dict[str, Any]:
         """Get GPIO status (synchronous)"""
-        async def operation(client):
-            return await client.get_gpio_status()
+        def operation(client):
+            return client.get_gpio_status()
         
-        return self._run_async(self._execute_with_client(operation))
+        return self._execute_with_client(operation)
     
     def list_valid_pins(self) -> Dict[str, Any]:
         """List valid GPIO pins (synchronous)"""
-        async def operation(client):
-            return await client.list_valid_pins()
+        def operation(client):
+            return client.list_valid_pins()
         
-        return self._run_async(self._execute_with_client(operation))
+        return self._execute_with_client(operation)
     
-    def list_tools(self) -> List[Dict[str, Any]]:
+    def list_tools(self) -> Dict[str, Any]:
         """List available tools (synchronous)"""
-        async def operation(client):
-            return await client.list_tools()
+        def operation(client):
+            return client.list_tools()
         
-        return self._run_async(self._execute_with_client(operation))
+        return self._execute_with_client(operation)
 
 # Global instance for Flask app
-mcp_gpio_client = SyncMCPGPIOClient()
+mcp_gpio_client = SyncGPIOClient()
 
 # Test function
-def test_mcp_client():
-    """Test the MCP client functionality"""
-    print("🧪 Testing MCP GPIO Client...")
+def test_gpio_client():
+    """Test the GPIO client functionality"""
+    logger.info("🧪 Testing Simple GPIO Client...")
+    
+    client = SimpleGPIOClient()
     
     try:
-        # Test listing tools
-        tools = mcp_gpio_client.list_tools()
-        print(f"Available tools: {[tool.get('name') for tool in tools]}")
-        
-        # Test GPIO status
-        status = mcp_gpio_client.get_gpio_status()
-        print(f"GPIO Status: {status}")
-        
-        # Test setting a pin
-        result = mcp_gpio_client.set_gpio_pin(18, "high")
-        print(f"Set pin 18 high: {result}")
-        
-        # Test reading a pin
-        result = mcp_gpio_client.read_gpio_pin(18)
-        print(f"Read pin 18: {result}")
-        
-        print("✅ MCP client test completed successfully")
-        
+        with client:
+            # Test listing tools
+            tools = client.list_tools()
+            logger.info(f"Available tools: {tools}")
+            
+            # Test GPIO operations
+            logger.info("Testing GPIO pin 18...")
+            
+            # Set pin high
+            result = client.set_gpio_pin(18, "high")
+            logger.info(f"Set pin 18 high: {result}")
+            
+            # Read pin state
+            state = client.read_gpio_pin(18)
+            logger.info(f"Pin 18 state: {state}")
+            
+            # Get status
+            status = client.get_gpio_status()
+            logger.info(f"GPIO status: {status}")
+            
     except Exception as e:
-        print(f"❌ MCP client test failed: {e}")
+        logger.error(f"❌ GPIO client test failed: {e}")
 
 if __name__ == "__main__":
-    test_mcp_client()
+    test_gpio_client()
