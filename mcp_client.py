@@ -59,17 +59,28 @@ class SimpleGPIOClient:
         
         # Send request to server
         request_json = json.dumps(request) + "\n"
+        logger.info(f"Sending request: {request_json.strip()}")
+        
         try:
             self.server_process.stdin.write(request_json)  # Write string directly, not bytes
             self.server_process.stdin.flush()
         except BrokenPipeError:
             raise RuntimeError("GPIO server connection broken")
+        except Exception as e:
+            raise RuntimeError(f"Failed to send request to GPIO server: {e}")
         
         # Read response
         try:
             response_line = self.server_process.stdout.readline().strip()  # Already string, no need to decode
+            logger.info(f"Received response: {response_line}")
+            
             if not response_line:
-                raise RuntimeError("Empty response from GPIO server")
+                # Check if server process is still running
+                if self.server_process.poll() is not None:
+                    stderr_output = self.server_process.stderr.read()
+                    raise RuntimeError(f"GPIO server terminated unexpectedly. stderr: {stderr_output}")
+                else:
+                    raise RuntimeError("Empty response from GPIO server (server still running)")
             
             response = json.loads(response_line)
             
@@ -79,7 +90,18 @@ class SimpleGPIOClient:
             return response.get("result", {})
             
         except json.JSONDecodeError as e:
-            raise RuntimeError(f"Invalid JSON response from GPIO server: {e}")
+            # Check server stderr for more info
+            stderr_info = ""
+            try:
+                import select
+                if hasattr(select, 'select'):
+                    ready, _, _ = select.select([self.server_process.stderr], [], [], 0.1)
+                    if ready:
+                        stderr_info = f" Server stderr: {self.server_process.stderr.read()}"
+            except:
+                pass
+            
+            raise RuntimeError(f"Invalid JSON response from GPIO server: {e}. Response was: '{response_line}'{stderr_info}")
         except Exception as e:
             raise RuntimeError(f"Communication error with GPIO server: {e}")
     
@@ -100,21 +122,32 @@ class SimpleGPIOClient:
                 bufsize=0
             )
             
-            # Wait a moment for server to start
-            time.sleep(0.5)
+            # Wait longer for server to start and check stderr
+            time.sleep(1.0)
             
             # Check if server is still running
             if self.server_process.poll() is not None:
                 stderr_output = self.server_process.stderr.read()
                 raise RuntimeError(f"GPIO server failed to start. Error: {stderr_output}")
             
+            # Check for any startup errors in stderr (non-blocking)
+            import select
+            if hasattr(select, 'select'):
+                ready, _, _ = select.select([self.server_process.stderr], [], [], 0.1)
+                if ready:
+                    stderr_data = self.server_process.stderr.read()
+                    if stderr_data and "ERROR" in stderr_data:
+                        logger.warning(f"Server stderr: {stderr_data}")
+            
             # Initialize the server
-            self._send_request("initialize", {
+            logger.info("Sending initialization request...")
+            init_response = self._send_request("initialize", {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {"tools": {}},
                 "clientInfo": {"name": "gpio-client", "version": "1.0.0"}
             })
             
+            logger.info(f"Initialization response: {init_response}")
             logger.info("✅ GPIO server started and initialized successfully")
             
         except Exception as e:

@@ -176,16 +176,23 @@ class SimpleGPIOServer:
         """Run the server (blocking)"""
         logger.info("🚀 Starting Simple GPIO Server...")
         
+        # Send server ready signal
+        sys.stdout.flush()
+        
         try:
             for line in sys.stdin:
                 line = line.strip()
                 if not line:
                     continue
                 
+                logger.info(f"Received request: {line}")
+                
                 try:
                     request = json.loads(line)
                     response = self.handle_request(request)
-                    print(json.dumps(response), flush=True)
+                    response_json = json.dumps(response)
+                    logger.info(f"Sending response: {response_json}")
+                    print(response_json, flush=True)
                 except json.JSONDecodeError as e:
                     logger.error(f"Invalid JSON: {e}")
                     error_response = {
