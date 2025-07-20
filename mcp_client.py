@@ -134,13 +134,31 @@ class SimpleGPIOClient:
                 bufsize=0
             )
             
-            # Wait longer for server to start and check stderr
-            time.sleep(1.0)
+            # Wait for server to start with immediate validation
+            time.sleep(0.5)
             
             # Check if server is still running
             if self.server_process.poll() is not None:
                 stderr_output = self.server_process.stderr.read()
-                raise RuntimeError(f"GPIO server failed to start. Error: {stderr_output}")
+                stdout_output = self.server_process.stdout.read()
+                raise RuntimeError(f"GPIO server failed to start. stderr: {stderr_output}, stdout: {stdout_output}")
+            
+            # Test if server is responsive by checking if it's ready to read
+            import select
+            if hasattr(select, 'select'):
+                # Check if server has sent any output (like "READY" signal)
+                ready, _, _ = select.select([self.server_process.stdout, self.server_process.stderr], [], [], 2.0)
+                if ready:
+                    # Read any startup messages
+                    for stream in ready:
+                        if stream == self.server_process.stderr:
+                            stderr_data = stream.read(1024)  # Read some data
+                            if stderr_data:
+                                logger.info(f"Server stderr: {stderr_data}")
+                        elif stream == self.server_process.stdout:
+                            stdout_data = stream.read(1024)  # Read some data  
+                            if stdout_data:
+                                logger.info(f"Server stdout: {stdout_data}")
             
             # Check for any startup errors in stderr (non-blocking)
             import select
@@ -151,16 +169,23 @@ class SimpleGPIOClient:
                     if stderr_data and "ERROR" in stderr_data:
                         logger.warning(f"Server stderr: {stderr_data}")
             
-            # Initialize the server
+            # Initialize the server with timeout
             logger.info("Sending initialization request...")
-            init_response = self._send_request("initialize", {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {"tools": {}},
-                "clientInfo": {"name": "gpio-client", "version": "1.0.0"}
-            })
-            
-            logger.info(f"Initialization response: {init_response}")
-            logger.info("✅ GPIO server started and initialized successfully")
+            try:
+                init_response = self._send_request("initialize", {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {"tools": {}},
+                    "clientInfo": {"name": "gpio-client", "version": "1.0.0"}
+                })
+                
+                logger.info(f"Initialization response: {init_response}")
+                logger.info("✅ GPIO server started and initialized successfully")
+            except TimeoutError as e:
+                logger.error(f"⏰ GPIO server initialization timeout: {e}")
+                raise RuntimeError(f"GPIO server initialization timeout: {e}")
+            except Exception as e:
+                logger.error(f"❌ GPIO server initialization failed: {e}")
+                raise RuntimeError(f"GPIO server initialization failed: {e}")
             
         except Exception as e:
             logger.error(f"❌ Failed to start GPIO server: {e}")

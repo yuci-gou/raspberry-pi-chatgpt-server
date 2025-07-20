@@ -5,18 +5,18 @@ import os
 import json
 import re
 from dotenv import load_dotenv
-# Load MCP GPIO client
+# Load HTTP GPIO client (more reliable than MCP/JSON-RPC)
 try:
-    from mcp_client import mcp_gpio_client
+    from simple_gpio_client import http_gpio_client
     GPIO_AVAILABLE = True
-    print("✅ MCP GPIO client loaded successfully!")
+    print("✅ HTTP GPIO client loaded successfully!")
 except ImportError as e:
     GPIO_AVAILABLE = False
-    print(f"❌ MCP GPIO client not available: {e}")
-    print("   Please ensure the MCP GPIO server and client are properly installed.")
+    print(f"❌ HTTP GPIO client not available: {e}")
+    print("   Please ensure the GPIO service components are properly installed.")
 except Exception as e:
     GPIO_AVAILABLE = False
-    print(f"❌ Unexpected error loading MCP client: {e}")
+    print(f"❌ Unexpected error loading HTTP GPIO client: {e}")
 
 # Load environment variables
 load_dotenv()
@@ -145,7 +145,7 @@ Examples:
 Always explain what you're doing and include the JSON command block."""
 
 def execute_gpio_command(pin: int, state: str) -> dict:
-    """Execute GPIO command using MCP client
+    """Execute GPIO command using HTTP GPIO client
     
     Args:
         pin (int): GPIO pin number
@@ -155,15 +155,15 @@ def execute_gpio_command(pin: int, state: str) -> dict:
         dict: GPIO execution result
     """
     if not GPIO_AVAILABLE:
-        return {"success": False, "message": "MCP GPIO client not available"}
+        return {"success": False, "message": "HTTP GPIO client not available"}
     
     try:
-        return mcp_gpio_client.set_gpio_pin(pin, state)
+        return http_gpio_client.set_gpio_pin(pin, state)
     except Exception as e:
         return {"success": False, "message": f"GPIO execution error: {e}"}
 
 def read_gpio_command(pin: int) -> dict:
-    """Read GPIO pin using MCP client
+    """Read GPIO pin using HTTP GPIO client
     
     Args:
         pin (int): GPIO pin number
@@ -172,24 +172,24 @@ def read_gpio_command(pin: int) -> dict:
         dict: GPIO read result
     """
     if not GPIO_AVAILABLE:
-        return {"success": False, "message": "MCP GPIO client not available"}
+        return {"success": False, "message": "HTTP GPIO client not available"}
     
     try:
-        return mcp_gpio_client.read_gpio_pin(pin)
+        return http_gpio_client.read_gpio_pin(pin)
     except Exception as e:
         return {"success": False, "message": f"GPIO read error: {e}"}
 
 def get_gpio_status_command() -> dict:
-    """Get GPIO status using MCP client
+    """Get GPIO status using HTTP GPIO client
     
     Returns:
         dict: GPIO status result
     """
     if not GPIO_AVAILABLE:
-        return {"gpio_available": False, "message": "MCP GPIO client not available"}
+        return {"gpio_available": False, "message": "HTTP GPIO client not available"}
     
     try:
-        return mcp_gpio_client.get_gpio_status()
+        return http_gpio_client.get_gpio_status()
     except Exception as e:
         return {"success": False, "message": f"GPIO status error: {e}"}
 
