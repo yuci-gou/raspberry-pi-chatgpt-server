@@ -240,8 +240,15 @@ class GPIOController:
         except Exception as e:
             logger.error(f"Error during GPIO cleanup: {e}")
 
-# Global GPIO controller instance
-gpio_controller = GPIOController()
+# Global GPIO controller instance (lazy loaded)
+_gpio_controller_instance = None
+
+def get_gpio_controller():
+    """Get the singleton GPIO controller instance"""
+    global _gpio_controller_instance
+    if _gpio_controller_instance is None:
+        _gpio_controller_instance = GPIOController()
+    return _gpio_controller_instance
 
 # Convenience functions for external use
 def set_gpio_high(pin: int) -> Dict[str, Any]:
@@ -253,7 +260,7 @@ def set_gpio_high(pin: int) -> Dict[str, Any]:
     Returns:
         Dict[str, Any]: Result dictionary
     """
-    return gpio_controller.set_gpio_output(pin, "high")
+    return get_gpio_controller().set_gpio_output(pin, "high")
 
 def set_gpio_low(pin: int) -> Dict[str, Any]:
     """Set GPIO pin to LOW
@@ -264,7 +271,7 @@ def set_gpio_low(pin: int) -> Dict[str, Any]:
     Returns:
         Dict[str, Any]: Result dictionary
     """
-    return gpio_controller.set_gpio_output(pin, "low")
+    return get_gpio_controller().set_gpio_output(pin, "low")
 
 def set_gpio(pin: int, state: str) -> Dict[str, Any]:
     """Set GPIO pin to specified state
@@ -276,7 +283,7 @@ def set_gpio(pin: int, state: str) -> Dict[str, Any]:
     Returns:
         Dict[str, Any]: Result dictionary
     """
-    return gpio_controller.set_gpio_output(pin, state)
+    return get_gpio_controller().set_gpio_output(pin, state)
 
 def read_gpio(pin: int) -> Dict[str, Any]:
     """Read GPIO pin state
@@ -287,11 +294,11 @@ def read_gpio(pin: int) -> Dict[str, Any]:
     Returns:
         Dict[str, Any]: Result dictionary
     """
-    return gpio_controller.read_gpio_input(pin)
+    return get_gpio_controller().read_gpio_input(pin)
 
 def cleanup_gpio():
     """Clean up all GPIO resources"""
-    gpio_controller.cleanup()
+    get_gpio_controller().cleanup()
 
 # Example usage and testing
 if __name__ == "__main__":
