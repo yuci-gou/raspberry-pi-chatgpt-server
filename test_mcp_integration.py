@@ -45,11 +45,20 @@ def test_mcp_client_server():
                 result = client.set_gpio_pin(17, "high")
                 logger.info(f"Set pin 17 high: {result}")
                 
-                if result.get("success"):
-                    logger.info("✅ MCP GPIO operation successful!")
-                    return True
+                # Parse the MCP response format
+                if result.get("content") and len(result["content"]) > 0:
+                    content = result["content"][0]
+                    if content.get("type") == "text":
+                        import json
+                        gpio_result = json.loads(content["text"])
+                        if gpio_result.get("success"):
+                            logger.info("✅ MCP GPIO operation successful!")
+                            return True
+                        else:
+                            logger.error(f"❌ MCP GPIO operation failed: {gpio_result.get('message')}")
+                            return False
                 else:
-                    logger.error(f"❌ MCP GPIO operation failed: {result.get('message')}")
+                    logger.error(f"❌ MCP GPIO operation failed: Invalid response format")
                     return False
                     
             except Exception as e:
@@ -80,11 +89,20 @@ def test_mcp_sync_client():
             result = mcp_gpio_client.set_gpio_pin(17, "high")
             logger.info(f"Sync client set pin 17 high: {result}")
             
-            if result.get("success"):
-                logger.info("✅ MCP sync client successful!")
-                return True
+            # Parse the MCP response format
+            if result.get("content") and len(result["content"]) > 0:
+                content = result["content"][0]
+                if content.get("type") == "text":
+                    import json
+                    gpio_result = json.loads(content["text"])
+                    if gpio_result.get("success"):
+                        logger.info("✅ MCP sync client successful!")
+                        return True
+                    else:
+                        logger.error(f"❌ MCP sync client failed: {gpio_result.get('message')}")
+                        return False
             else:
-                logger.error(f"❌ MCP sync client failed: {result.get('message')}")
+                logger.error(f"❌ MCP sync client failed: Invalid response format")
                 return False
                 
         except Exception as e:

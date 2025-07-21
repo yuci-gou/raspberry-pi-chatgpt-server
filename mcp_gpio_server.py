@@ -176,52 +176,61 @@ class SimpleGPIOServer:
     
     def run(self):
         """Run the server (blocking)"""
-        logger.info("Starting Simple GPIO Server...")
-        
-        # Send server ready signal to stderr (so client can see it)
-        print("GPIO_SERVER_READY", file=sys.stderr, flush=True)
-        
-        # Ensure stdout is ready for JSON-RPC communication
-        sys.stdout.flush()
-        
         try:
-            # Use a more robust input reading approach
-            while True:
-                try:
-                    # Read line from stdin
-                    line = sys.stdin.readline()
-                    if not line:  # EOF
-                        logger.info("EOF received, shutting down server")
-                        break
-                    
-                    line = line.strip()
-                    if not line:
-                        continue
-                    
-                    logger.info("Received request: %s", line)
-                    
+            logger.info("Starting Simple GPIO Server...")
+            
+            # Send server ready signal to stderr (so client can see it)
+            logger.info("Sending GPIO_SERVER_READY signal...")
+            print("GPIO_SERVER_READY", file=sys.stderr, flush=True)
+            logger.info("GPIO_SERVER_READY signal sent")
+            
+            # Ensure stdout is ready for JSON-RPC communication
+            sys.stdout.flush()
+            
+            logger.info("Entering main server loop...")
+            
+            try:
+                # Use a more robust input reading approach
+                while True:
                     try:
-                        request = json.loads(line)
-                        response = self.handle_request(request)
-                        response_json = json.dumps(response)
-                        logger.info("Sending response: %s", response_json)
-                        print(response_json, flush=True)
-                    except json.JSONDecodeError as e:
-                        logger.error("Invalid JSON-RPC request: %s", line)
-                        error_response = {
-                            "jsonrpc": "2.0",
-                            "error": {"code": -32600, "message": "Invalid Request"},
-                            "id": None
-                        }
-                        print(json.dumps(error_response), flush=True)
+                        # Read line from stdin
+                        line = sys.stdin.readline()
+                        if not line:  # EOF
+                            logger.info("EOF received, shutting down server")
+                            break
                         
-                except EOFError:
-                    logger.info("EOFError received, shutting down server")
-                    break
-                except KeyboardInterrupt:
-                    logger.info("Server interrupted by user")
-                    break
-                    
+                        line = line.strip()
+                        if not line:
+                            continue
+                        
+                        logger.info("Received request: %s", line)
+                        
+                        try:
+                            request = json.loads(line)
+                            response = self.handle_request(request)
+                            response_json = json.dumps(response)
+                            logger.info("Sending response: %s", response_json)
+                            print(response_json, flush=True)
+                        except json.JSONDecodeError as e:
+                            logger.error("Invalid JSON-RPC request: %s", line)
+                            error_response = {
+                                "jsonrpc": "2.0",
+                                "error": {"code": -32600, "message": "Invalid Request"},
+                                "id": None
+                            }
+                            print(json.dumps(error_response), flush=True)
+                            
+                    except EOFError:
+                        logger.info("EOFError received, shutting down server")
+                        break
+                    except KeyboardInterrupt:
+                        logger.info("Server interrupted by user")
+                        break
+                        
+            except Exception as e:
+                logger.error("Exception in run method: %s", e, exc_info=True)
+                raise
+            
         except KeyboardInterrupt:
             logger.info("Server interrupted by user")
         except Exception as e:
@@ -234,8 +243,22 @@ class SimpleGPIOServer:
 
 def main():
     """Main function to run the GPIO server"""
-    server = SimpleGPIOServer()
-    server.run()
+    logger.info("Main function called")
+    try:
+        logger.info("Creating SimpleGPIOServer instance...")
+        server = SimpleGPIOServer()
+        logger.info("Server instance created, calling run()...")
+        server.run()
+    except Exception as e:
+        logger.error("Exception in main: %s", e, exc_info=True)
+        raise
 
 if __name__ == "__main__":
-    main()
+    logger.info("Script started as main")
+    sys.stderr.flush()
+    try:
+        main()
+    except Exception as e:
+        logger.error("Exception at top level: %s", e, exc_info=True)
+        sys.stderr.flush()
+        raise

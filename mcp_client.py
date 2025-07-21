@@ -136,6 +136,7 @@ class SimpleGPIOClient:
             
             # Wait for server ready signal
             server_ready = False
+            stderr_lines = []
             for attempt in range(50):  # 5 seconds total
                 if self.server_process.poll() is not None:
                     stderr_output = self.server_process.stderr.read()
@@ -147,13 +148,26 @@ class SimpleGPIOClient:
                 if hasattr(select, 'select'):
                     ready, _, _ = select.select([self.server_process.stderr], [], [], 0.1)
                     if ready:
-                        stderr_data = self.server_process.stderr.readline()
-                        if stderr_data:
-                            logger.info(f"Server stderr: {stderr_data.strip()}")
-                            if "GPIO_SERVER_READY" in stderr_data:
-                                server_ready = True
-                                logger.info("✅ GPIO server ready signal received")
+                        # Read all available stderr data
+                        while True:
+                            try:
+                                ready_again, _, _ = select.select([self.server_process.stderr], [], [], 0.01)
+                                if not ready_again:
+                                    break
+                                stderr_data = self.server_process.stderr.readline()
+                                if not stderr_data:
+                                    break
+                                stderr_lines.append(stderr_data.strip())
+                                logger.info(f"Server stderr: {stderr_data.strip()}")
+                                if "GPIO_SERVER_READY" in stderr_data:
+                                    server_ready = True
+                                    logger.info("✅ GPIO server ready signal received")
+                                    break
+                            except:
                                 break
+                        
+                        if server_ready:
+                            break
                 
                 time.sleep(0.1)
             
