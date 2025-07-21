@@ -134,10 +134,14 @@ class SimpleGPIOClient:
                 bufsize=0
             )
             
-            # Wait for server ready signal
+            # Wait for server ready signal with improved approach
             server_ready = False
-            stderr_lines = []
-            for attempt in range(50):  # 5 seconds total
+            start_time = time.time()
+            timeout = 10.0  # 10 seconds timeout
+            all_stderr_lines = []
+            
+            while time.time() - start_time < timeout:
+                # Check if server process is still running
                 if self.server_process.poll() is not None:
                     stderr_output = self.server_process.stderr.read()
                     stdout_output = self.server_process.stdout.read()
@@ -148,30 +152,55 @@ class SimpleGPIOClient:
                 if hasattr(select, 'select'):
                     ready, _, _ = select.select([self.server_process.stderr], [], [], 0.1)
                     if ready:
-                        # Read all available stderr data
-                        while True:
-                            try:
+                        try:
+                            # Read all available lines from stderr
+                            while True:
+                                # Check if more data is available without blocking
                                 ready_again, _, _ = select.select([self.server_process.stderr], [], [], 0.01)
                                 if not ready_again:
                                     break
+                                    
                                 stderr_data = self.server_process.stderr.readline()
                                 if not stderr_data:
                                     break
-                                stderr_lines.append(stderr_data.strip())
-                                logger.info(f"Server stderr: {stderr_data.strip()}")
-                                if "GPIO_SERVER_READY" in stderr_data:
-                                    server_ready = True
-                                    logger.info("✅ GPIO server ready signal received")
-                                    break
-                            except:
+                                    
+                                stderr_line = stderr_data.strip()
+                                if stderr_line:
+                                    all_stderr_lines.append(stderr_line)
+                                    logger.info(f"Server stderr: {stderr_line}")
+                                    
+                                    # Check for ready signal
+                                    if "GPIO_SERVER_READY" in stderr_line:
+                                        server_ready = True
+                                        logger.info("✅ GPIO server ready signal received")
+                                        break
+                            
+                            if server_ready:
                                 break
-                        
-                        if server_ready:
-                            break
+                                
+                        except Exception as e:
+                            logger.warning(f"Error reading stderr: {e}")
+                else:
+                    # Fallback for systems without select
+                    time.sleep(0.1)
+                    continue
                 
                 time.sleep(0.1)
             
             if not server_ready:
+                # Try to get any remaining stderr output for debugging
+                try:
+                    import select
+                    if hasattr(select, 'select'):
+                        ready, _, _ = select.select([self.server_process.stderr], [], [], 0.1)
+                        if ready:
+                            remaining_stderr = self.server_process.stderr.read()
+                            logger.error(f"Server stderr at timeout: {remaining_stderr}")
+                            all_stderr_lines.append(f"TIMEOUT_STDERR: {remaining_stderr}")
+                except:
+                    pass
+                
+                logger.error(f"All stderr lines received: {all_stderr_lines}")
                 raise RuntimeError("GPIO server did not send ready signal within timeout")
             
             # Check for any startup errors in stderr (non-blocking)
