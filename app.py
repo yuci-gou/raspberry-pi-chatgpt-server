@@ -158,7 +158,21 @@ def execute_gpio_command(pin: int, state: str) -> dict:
         return {"success": False, "message": "MCP GPIO client not available"}
     
     try:
-        return mcp_gpio_client.set_gpio_pin(pin, state)
+        result = mcp_gpio_client.set_gpio_pin(pin, state)
+        
+        # Extract the actual GPIO result from MCP response structure
+        if "content" in result and len(result["content"]) > 0:
+            content = result["content"][0]
+            if content.get("type") == "text":
+                # Parse the JSON text content
+                gpio_response = json.loads(content["text"])
+                return gpio_response
+        
+        # Fallback if structure is different
+        return result
+        
+    except json.JSONDecodeError as e:
+        return {"success": False, "message": f"Failed to parse GPIO response: {e}"}
     except Exception as e:
         return {"success": False, "message": f"GPIO execution error: {e}"}
 
@@ -175,7 +189,21 @@ def read_gpio_command(pin: int) -> dict:
         return {"success": False, "message": "MCP GPIO client not available"}
     
     try:
-        return mcp_gpio_client.read_gpio_pin(pin)
+        result = mcp_gpio_client.read_gpio_pin(pin)
+        
+        # Extract the actual GPIO result from MCP response structure
+        if "content" in result and len(result["content"]) > 0:
+            content = result["content"][0]
+            if content.get("type") == "text":
+                # Parse the JSON text content
+                gpio_response = json.loads(content["text"])
+                return gpio_response
+        
+        # Fallback if structure is different
+        return result
+        
+    except json.JSONDecodeError as e:
+        return {"success": False, "message": f"Failed to parse GPIO response: {e}"}
     except Exception as e:
         return {"success": False, "message": f"GPIO read error: {e}"}
 
@@ -189,7 +217,21 @@ def get_gpio_status_command() -> dict:
         return {"gpio_available": False, "message": "MCP GPIO client not available"}
     
     try:
-        return mcp_gpio_client.get_gpio_status()
+        result = mcp_gpio_client.get_gpio_status()
+        
+        # Extract the actual GPIO result from MCP response structure
+        if "content" in result and len(result["content"]) > 0:
+            content = result["content"][0]
+            if content.get("type") == "text":
+                # Parse the JSON text content
+                gpio_response = json.loads(content["text"])
+                return gpio_response
+        
+        # Fallback if structure is different
+        return result
+        
+    except json.JSONDecodeError as e:
+        return {"success": False, "message": f"Failed to parse GPIO response: {e}"}
     except Exception as e:
         return {"success": False, "message": f"GPIO status error: {e}"}
 
